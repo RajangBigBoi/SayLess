@@ -113,42 +113,65 @@
   }
 
   function recommend(intent, energy, distance, timeBucket) {
-    // Hard filter
-    let candidates = PLACES.filter(p =>
+  const distanceMatches = (p) => {
+    // If user is willing to Uber, walkable places are still valid.
+    if (distance === "Uber OK") {
+      return p.distanceFit.includes("Uber OK") || p.distanceFit.includes("Walk");
+    }
+    return p.distanceFit.includes("Walk");
+  };
+
+  const energyMatches = (p) => p.energyFit.includes(energy);
+  const timeMatches = (p, bucket) => p.timeFit.includes(bucket);
+
+  // 1) Hard filter
+  let candidates = PLACES.filter(p =>
+    p.category === intent &&
+    energyMatches(p) &&
+    distanceMatches(p) &&
+    timeMatches(p, timeBucket)
+  );
+
+  // 2) Time fallback: Late -> Night
+  if (candidates.length === 0 && timeBucket === "Late") {
+    candidates = PLACES.filter(p =>
       p.category === intent &&
-      p.energyFit.includes(energy) &&
-      p.distanceFit.includes(distance) &&
-      p.timeFit.includes(timeBucket)
+      energyMatches(p) &&
+      distanceMatches(p) &&
+      timeMatches(p, "Night")
+    );
+  }
+
+  // 3) Energy fallback: Dead -> Normal
+  if (candidates.length === 0 && energy === "Dead") {
+    candidates = PLACES.filter(p =>
+      p.category === intent &&
+      p.energyFit.includes("Normal") &&
+      distanceMatches(p) &&
+      timeMatches(p, timeBucket)
     );
 
-    // Fallback expansions
-    if (candidates.length === 0 && distance === "Walk") {
-      candidates = PLACES.filter(p =>
-        p.category === intent &&
-        p.energyFit.includes(energy) &&
-        p.distanceFit.includes("Uber OK") &&
-        p.timeFit.includes(timeBucket)
-      );
-    }
-    if (candidates.length === 0 && energy === "Dead") {
+    if (candidates.length === 0 && timeBucket === "Late") {
       candidates = PLACES.filter(p =>
         p.category === intent &&
         p.energyFit.includes("Normal") &&
-        p.distanceFit.includes(distance) &&
-        p.timeFit.includes(timeBucket)
+        distanceMatches(p) &&
+        timeMatches(p, "Night")
       );
     }
-
-    candidates.sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0));
-    const primary = candidates[0] || null;
-
-    let backup = null;
-    if (primary) {
-      backup = PLACES.find(p => p.name === primary.backup) || candidates[1] || null;
-    }
-
-    return { primary, backup };
   }
+
+  candidates.sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0));
+  const primary = candidates[0] || null;
+
+  let backup = null;
+  if (primary) {
+    backup = PLACES.find(p => p.name === primary.backup) || candidates[1] || null;
+  }
+
+  return { primary, backup };
+}
+
 
   function deliverRecommendation() {
     const timeBucket = getTimeBucket();
