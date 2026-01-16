@@ -34,12 +34,17 @@
   let PLACES = [];
   const state = { intent: null, energy: null, distance: null };
 
-  function getTimeBucket(date = new Date()) {
-    const h = date.getHours();
-    if (h >= 5 && h < 11) return "Morning";
-    if (h >= 11 && h < 17) return "Day";
-    if (h >= 17 && h < 23) return "Night";
-    return "Late";
+  function getTimeBucket() {
+  // Melbourne time (Australia/Melbourne)
+  const melbourneTime = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Australia/Melbourne" })
+  );
+  const h = melbourneTime.getHours();
+
+  if (h >= 5 && h < 11) return "Morning";
+  if (h >= 11 && h < 17) return "Day";
+  if (h >= 17 && h < 24) return "Night";
+  return "Late";
   }
 
   function addMsg(text) {
