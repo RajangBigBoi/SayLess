@@ -3,25 +3,207 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SayLess</title>
+  <title>SayLess — Mate</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 40px; max-width: 720px; }
-    h1 { margin-bottom: 8px; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; }
-    button { padding: 10px 12px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; margin-right: 8px; margin-top: 8px; }
-    .muted { color: #555; }
+    body { font-family: Arial, sans-serif; margin: 24px; max-width: 760px; }
+    h1 { margin: 0 0 6px; }
+    .muted { color: #555; margin: 0 0 16px; }
+    .chat { border: 1px solid #ddd; border-radius: 14px; padding: 14px; min-height: 260px; background: #fafafa; }
+    .msg { margin: 10px 0; line-height: 1.35; }
+    .mate { font-weight: 700; }
+    .bubble { display: inline-block; padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid #e6e6e6; }
+    .controls { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+    button { padding: 10px 12px; border-radius: 12px; border: 1px solid #ccc; cursor: pointer; background: #fff; }
+    button:hover { background: #f2f2f2; }
+    a { color: #0b57d0; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .rec { margin-top: 6px; }
+    .card { background: #fff; border: 1px solid #e6e6e6; border-radius: 12px; padding: 12px; }
+    .row { margin: 6px 0; }
+    .strong { font-weight: 700; }
   </style>
 </head>
 <body>
   <h1>SayLess</h1>
   <p class="muted">Mate helps you decide what to do right now.</p>
 
-  <div class="card">
-    <p><strong>What do you want to do right now?</strong></p>
-    <button onclick="alert('Mate: Eat flow coming next')">Eat</button>
-    <button onclick="alert('Mate: Drink flow coming next')">Drink</button>
-    <button onclick="alert('Mate: Explore flow coming next')">Explore</button>
-    <button onclick="alert('Mate: Surprise flow coming next')">Surprise me</button>
-  </div>
+  <div class="chat" id="chat"></div>
+  <div class="controls" id="controls"></div>
+
+<script>
+  let PLACES = [];
+  const state = { intent: null, energy: null, distance: null };
+
+  function getTimeBucket(date = new Date()) {
+    const h = date.getHours();
+    if (h >= 5 && h < 11) return "Morning";
+    if (h >= 11 && h < 17) return "Day";
+    if (h >= 17 && h < 23) return "Night";
+    return "Late";
+  }
+
+  function addMsg(text) {
+    const chat = document.getElementById("chat");
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.innerHTML = `<span class="mate">Mate</span><br><span class="bubble">${text}</span>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function setButtons(buttons) {
+    const controls = document.getElementById("controls");
+    controls.innerHTML = "";
+    buttons.forEach(({label, onClick}) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.onclick = onClick;
+      controls.appendChild(b);
+    });
+  }
+
+  function resetFlow() {
+    state.intent = null;
+    state.energy = null;
+    state.distance = null;
+    document.getElementById("chat").innerHTML = "";
+    start();
+  }
+
+  function start() {
+    addMsg("Hey, I’m Mate. No plans? Perfect. What do you wanna do right now?");
+    setButtons([
+      { label: "Eat", onClick: () => chooseIntent("Eat") },
+      { label: "Drink", onClick: () => chooseIntent("Drink") },
+      { label: "Explore", onClick: () => chooseIntent("Explore") },
+      { label: "Surprise me", onClick: () => chooseIntent("Surprise") }
+    ]);
+  }
+
+  function chooseIntent(intent) {
+    state.intent = intent;
+    addMsg("Got it. How’s your energy?");
+    setButtons([
+      { label: "Dead", onClick: () => chooseEnergy("Dead") },
+      { label: "Normal", onClick: () => chooseEnergy("Normal") },
+      { label: "Let’s Go", onClick: () => chooseEnergy("Let’s Go") }
+    ]);
+  }
+
+  function chooseEnergy(energy) {
+    state.energy = energy;
+    addMsg("Walk or Uber?");
+    setButtons([
+      { label: "Walk", onClick: () => chooseDistance("Walk") },
+      { label: "Uber OK", onClick: () => chooseDistance("Uber OK") }
+    ]);
+  }
+
+  function chooseDistance(distance) {
+    state.distance = distance;
+    deliverRecommendation();
+  }
+
+  function pickSurpriseIntent(timeBucket) {
+    // Simple surprise logic
+    if (timeBucket === "Morning") return "Eat";
+    if (timeBucket === "Day") return "Explore";
+    if (timeBucket === "Night") return "Drink";
+    return "Eat"; // Late
+  }
+
+  function recommend(intent, energy, distance, timeBucket) {
+    // Hard filter
+    let candidates = PLACES.filter(p =>
+      p.category === intent &&
+      p.energyFit.includes(energy) &&
+      p.distanceFit.includes(distance) &&
+      p.timeFit.includes(timeBucket)
+    );
+
+    // Fallback expansions
+    if (candidates.length === 0 && distance === "Walk") {
+      candidates = PLACES.filter(p =>
+        p.category === intent &&
+        p.energyFit.includes(energy) &&
+        p.distanceFit.includes("Uber OK") &&
+        p.timeFit.includes(timeBucket)
+      );
+    }
+    if (candidates.length === 0 && energy === "Dead") {
+      candidates = PLACES.filter(p =>
+        p.category === intent &&
+        p.energyFit.includes("Normal") &&
+        p.distanceFit.includes(distance) &&
+        p.timeFit.includes(timeBucket)
+      );
+    }
+
+    candidates.sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0));
+    const primary = candidates[0] || null;
+
+    let backup = null;
+    if (primary) {
+      backup = PLACES.find(p => p.name === primary.backup) || candidates[1] || null;
+    }
+
+    return { primary, backup };
+  }
+
+  function deliverRecommendation() {
+    const timeBucket = getTimeBucket();
+
+    let intent = state.intent;
+    if (intent === "Surprise") intent = pickSurpriseIntent(timeBucket);
+
+    const { primary, backup } = recommend(intent, state.energy, state.distance, timeBucket);
+
+    if (!primary) {
+      addMsg("Yeah nah — everything good is kinda cooked right now. If you can, switch to Uber OK and try again.");
+      setButtons([
+        { label: "Try again", onClick: resetFlow }
+      ]);
+      return;
+    }
+
+    const trustLine = (timeBucket === "Late" || state.energy === "Dead")
+      ? "<div class='row'>Trust me on this.</div>"
+      : "";
+
+    const html = `
+      <div class="card rec">
+        <div class="row"><span class="strong">Go here:</span> ${primary.name}</div>
+        <div class="row"><span class="strong">Why:</span> ${primary.why}</div>
+        <div class="row"><span class="strong">Do this:</span> ${primary.doThis}</div>
+        ${trustLine}
+        <div class="row"><a href="${primary.mapsLink}" target="_blank" rel="noopener">Open in Maps</a></div>
+        ${backup ? `<div class="row"><span class="strong">Backup:</span> ${backup.name} — <a href="${backup.mapsLink}" target="_blank" rel="noopener">Open in Maps</a></div>` : ""}
+      </div>
+    `;
+
+    addMsg(html);
+
+    setButtons([
+      { label: "Different vibe", onClick: () => resetFlow() },
+      { label: "Surprise me", onClick: () => { state.intent = "Surprise"; deliverRecommendation(); } },
+      { label: "Start over", onClick: resetFlow }
+    ]);
+  }
+
+  async function loadPlaces() {
+    const res = await fetch("./places.json");
+    if (!res.ok) throw new Error("Failed to load places.json");
+    PLACES = await res.json();
+  }
+
+  loadPlaces()
+    .then(start)
+    .catch(err => {
+      document.getElementById("chat").innerHTML = "";
+      addMsg("I couldn’t load the database. Check that places.json exists in the repo root and is valid JSON.");
+      console.error(err);
+    });
+</script>
 </body>
 </html>
+
