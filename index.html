@@ -105,7 +105,6 @@
   }
 
   function pickSurpriseIntent(timeBucket) {
-    // Simple surprise logic
     if (timeBucket === "Morning") return "Eat";
     if (timeBucket === "Day") return "Explore";
     if (timeBucket === "Night") return "Drink";
@@ -113,65 +112,64 @@
   }
 
   function recommend(intent, energy, distance, timeBucket) {
-  const distanceMatches = (p) => {
-    // If user is willing to Uber, walkable places are still valid.
-    if (distance === "Uber OK") {
-      return p.distanceFit.includes("Uber OK") || p.distanceFit.includes("Walk");
-    }
-    return p.distanceFit.includes("Walk");
-  };
+    const distanceMatches = (p) => {
+      // If user is willing to Uber, walkable places are still valid.
+      if (distance === "Uber OK") {
+        return p.distanceFit.includes("Uber OK") || p.distanceFit.includes("Walk");
+      }
+      return p.distanceFit.includes("Walk");
+    };
 
-  const energyMatches = (p) => p.energyFit.includes(energy);
-  const timeMatches = (p, bucket) => p.timeFit.includes(bucket);
+    const energyMatches = (p) => p.energyFit.includes(energy);
+    const timeMatches = (p, bucket) => p.timeFit.includes(bucket);
 
-  // 1) Hard filter
-  let candidates = PLACES.filter(p =>
-    p.category === intent &&
-    energyMatches(p) &&
-    distanceMatches(p) &&
-    timeMatches(p, timeBucket)
-  );
-
-  // 2) Time fallback: Late -> Night
-  if (candidates.length === 0 && timeBucket === "Late") {
-    candidates = PLACES.filter(p =>
+    // 1) Hard filter
+    let candidates = PLACES.filter(p =>
       p.category === intent &&
       energyMatches(p) &&
-      distanceMatches(p) &&
-      timeMatches(p, "Night")
-    );
-  }
-
-  // 3) Energy fallback: Dead -> Normal
-  if (candidates.length === 0 && energy === "Dead") {
-    candidates = PLACES.filter(p =>
-      p.category === intent &&
-      p.energyFit.includes("Normal") &&
       distanceMatches(p) &&
       timeMatches(p, timeBucket)
     );
 
+    // 2) Time fallback: Late -> Night
     if (candidates.length === 0 && timeBucket === "Late") {
       candidates = PLACES.filter(p =>
         p.category === intent &&
-        p.energyFit.includes("Normal") &&
+        energyMatches(p) &&
         distanceMatches(p) &&
         timeMatches(p, "Night")
       );
     }
+
+    // 3) Energy fallback: Dead -> Normal
+    if (candidates.length === 0 && energy === "Dead") {
+      candidates = PLACES.filter(p =>
+        p.category === intent &&
+        p.energyFit.includes("Normal") &&
+        distanceMatches(p) &&
+        timeMatches(p, timeBucket)
+      );
+
+      if (candidates.length === 0 && timeBucket === "Late") {
+        candidates = PLACES.filter(p =>
+          p.category === intent &&
+          p.energyFit.includes("Normal") &&
+          distanceMatches(p) &&
+          timeMatches(p, "Night")
+        );
+      }
+    }
+
+    candidates.sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0));
+    const primary = candidates[0] || null;
+
+    let backup = null;
+    if (primary) {
+      backup = PLACES.find(p => p.name === primary.backup) || candidates[1] || null;
+    }
+
+    return { primary, backup };
   }
-
-  candidates.sort((a,b) => (b.priority ?? 0) - (a.priority ?? 0));
-  const primary = candidates[0] || null;
-
-  let backup = null;
-  if (primary) {
-    backup = PLACES.find(p => p.name === primary.backup) || candidates[1] || null;
-  }
-
-  return { primary, backup };
-}
-
 
   function deliverRecommendation() {
     const timeBucket = getTimeBucket();
@@ -207,26 +205,55 @@
     addMsg(html);
 
     setButtons([
-      { label: "Different vibe", onClick: () => resetFlow() },
+      { label: "Try a different pick", onClick: resetFlow },
       { label: "Surprise me", onClick: () => { state.intent = "Surprise"; deliverRecommendation(); } },
       { label: "Start over", onClick: resetFlow }
     ]);
   }
 
+  // --- Data normalization for Notion-exported JSON ---
+  function splitCSV(value) {
+    if (!value) return [];
+    return String(value)
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  function backupNameOnly(value) {
+    if (!value) return "";
+    // Take everything before " (" if a Notion URL is appended
+    return String(value).split(" (")[0].trim();
+  }
+
   async function loadPlaces() {
     const res = await fetch("./places.json");
     if (!res.ok) throw new Error("Failed to load places.json");
-    PLACES = await res.json();
+    const raw = await res.json();
+
+    // Normalize Notion-exported JSON -> app schema
+    PLACES = raw.map(r => ({
+      name: r["Name"] ?? "",
+      category: r["Category"] ?? "",
+      energyFit: splitCSV(r["Energy Fit"]),
+      distanceFit: splitCSV(r["Distance Fit"]),
+      timeFit: splitCSV(r["Time Fit"]),
+      priority: Number(r["Priority"] ?? 0),
+      why: r["Why"] ?? "",
+      doThis: r["Do This"] ?? "",
+      mapsLink: r["Maps Link"] ?? "",
+      backup: backupNameOnly(r["Backup"])
+    }));
   }
 
+  // IMPORTANT FIX: actually load the DB, then start the chatbot
   loadPlaces()
     .then(start)
     .catch(err => {
       document.getElementById("chat").innerHTML = "";
-      addMsg("I couldn’t load the database. Check that places.json exists in the repo root and is valid JSON.");
+      addMsg("I couldn’t load the database. Check that places.json exists and is valid JSON.");
       console.error(err);
     });
 </script>
 </body>
 </html>
-
